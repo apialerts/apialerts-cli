@@ -10,7 +10,7 @@ A command-line interface for [apialerts.com](https://apialerts.com). Send events
 
 ```bash
 brew tap apialerts/tap
-brew install apialerts
+brew install --cask apialerts
 ```
 
 ### Scoop (Windows)
