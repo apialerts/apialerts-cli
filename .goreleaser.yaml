@@ -11,6 +11,15 @@ builds:
     goarch:
       - amd64
       - arm64
+    hooks:
+      post:
+        - cmd: >-
+            {{- if eq .Os "darwin" }}
+            codesign --force --sign "Developer ID Application: Jared Hall ({{ .Env.APPLE_TEAM_ID }})" --timestamp "{{ .Path }}"
+            {{- else }}
+            true
+            {{- end }}
+          output: true
 
 archives:
   - name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
