@@ -10,11 +10,17 @@ import (
 const configDir = ".apialerts"
 const configFile = "config.json"
 
+// configDirOverride allows overriding the config directory for testing.
+var configDirOverride string
+
 type CLIConfig struct {
 	APIKey string `json:"api_key"`
 }
 
 func configPath() (string, error) {
+	if configDirOverride != "" {
+		return filepath.Join(configDirOverride, configFile), nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
