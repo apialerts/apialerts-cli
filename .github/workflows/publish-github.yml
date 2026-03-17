@@ -52,7 +52,7 @@ jobs:
           APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          for bin in dist/apialerts-cli_darwin_*/apialerts; do
+          for bin in dist/cli_darwin_*/apialerts; do
             ZIP_PATH="${bin}.zip"
             ditto -c -k "$bin" "$ZIP_PATH"
             xcrun notarytool submit "$ZIP_PATH" \

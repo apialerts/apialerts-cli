@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/apialerts/apialerts-cli/internal/config"
+	"github.com/apialerts/cli/internal/config"
 	"github.com/apialerts/apialerts-go"
 	"github.com/spf13/cobra"
 )

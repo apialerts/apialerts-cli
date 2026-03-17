@@ -21,12 +21,12 @@ scoop install apialerts
 ### Go Install
 
 ```bash
-go install github.com/apialerts/apialerts-cli@latest
+go install github.com/apialerts/cli@latest
 ```
 
 ### Download Binary
 
-Download the latest binary from the [Releases](https://github.com/apialerts/apialerts-cli/releases) page.
+Download the latest binary from the [Releases](https://github.com/apialerts/cli/releases) page.
 
 ## Setup
 

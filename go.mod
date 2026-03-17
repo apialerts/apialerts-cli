@@ -1,4 +1,4 @@
-module github.com/apialerts/apialerts-cli
+module github.com/apialerts/cli
 
 go 1.22
 

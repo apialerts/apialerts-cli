@@ -1,6 +1,6 @@
 package main
 
-import "github.com/apialerts/apialerts-cli/cmd"
+import "github.com/apialerts/cli/cmd"
 
 func main() {
 	cmd.Execute()

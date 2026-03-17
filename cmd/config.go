@@ -3,7 +3,7 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/apialerts/apialerts-cli/internal/config"
+	"github.com/apialerts/cli/internal/config"
 	"github.com/spf13/cobra"
 )
 
