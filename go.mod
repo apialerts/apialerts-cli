@@ -3,7 +3,7 @@ module github.com/apialerts/cli
 go 1.25.0
 
 require (
-	github.com/apialerts/apialerts-go v1.2.0-alpha.3
+	github.com/apialerts/apialerts-go v1.2.0-alpha.4
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/term v0.41.0
 )

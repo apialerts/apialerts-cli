@@ -19,8 +19,10 @@ Get started:
 }
 
 func Execute() {
+	rootCmd.SilenceErrors = true
+	rootCmd.CompletionOptions.HiddenDefaultCmd = true
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
 	}
 }

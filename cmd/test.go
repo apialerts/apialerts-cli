@@ -3,8 +3,8 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/apialerts/cli/internal/config"
 	"github.com/apialerts/apialerts-go"
+	"github.com/apialerts/cli/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -13,13 +13,16 @@ var testCmd = &cobra.Command{
 	Short: "Send a test event",
 	Long:  "Send a test event to verify your API key and connectivity.",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		apiKey, err := config.GetAPIKey()
+		cfg, err := config.Load()
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to load config: %w", err)
+		}
+		if cfg.APIKey == "" {
+			return fmt.Errorf("no API key configured — run: apialerts init")
 		}
 
-		apialerts.ConfigureWithConfig(apiKey, apialerts.Config{Debug: true})
-		apialerts.SetIntegration(IntegrationName)
+		apialerts.Configure(cfg.APIKey)
+		apialerts.SetOverrides(IntegrationName, Version, cfg.ServerURL)
 
 		event := apialerts.Event{
 			Event:   "cli.test",
