@@ -1,6 +1,6 @@
 package cmd
 
 const (
-	IntegrationName = "cli"
-	Version         = "1.1.0"
+	IntegrationName = "apialerts-cli"
+	Version         = "1.2.0"
 )

@@ -14,7 +14,8 @@ const configFile = "config.json"
 var configDirOverride string
 
 type CLIConfig struct {
-	APIKey string `json:"api_key"`
+	APIKey    string `json:"api_key"`
+	ServerURL string `json:"server_url,omitempty"`
 }
 
 func configPath() (string, error) {
@@ -73,7 +74,7 @@ func GetAPIKey() (string, error) {
 		return "", err
 	}
 	if cfg.APIKey == "" {
-		return "", errors.New("no API key configured — run: apialerts config --key <your-api-key>")
+		return "", errors.New("no API key configured — run: apialerts init")
 	}
 	return cfg.APIKey, nil
 }
