@@ -1,0 +1,50 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    - revive
+    - gocyclo
+    - gosec
+    - misspell
+    - unconvert
+    - whitespace
+  settings:
+    gocyclo:
+      min-complexity: 20
+    revive:
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: dot-imports
+        - name: error-naming
+        - name: error-return
+        - name: error-strings
+        - name: errorf
+        - name: indent-error-flow
+        - name: range
+        - name: receiver-naming
+        - name: time-naming
+        - name: unreachable-code
+        - name: var-declaration
+  exclusions:
+    rules:
+      # Functional tests build and exec the binary; subprocess paths come from t.TempDir().
+      - linters: [gosec]
+        text: "G204"
+      # JSON encoder writes to httptest in tests; intentional ignore.
+      - linters: [errcheck, gosec]
+        path: _test\.go
+      # The config package's job is to persist the user's API key at a path
+      # under ~/.apialerts/. G304 (file inclusion via variable) and G117
+      # (marshaling field matching secret pattern) are by design here.
+      - linters: [gosec]
+        path: internal/config/config\.go
+        text: "G304|G117"
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

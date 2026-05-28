@@ -67,14 +67,3 @@ func Save(cfg *CLIConfig) error {
 
 	return os.WriteFile(path, data, 0600)
 }
-
-func GetAPIKey() (string, error) {
-	cfg, err := Load()
-	if err != nil {
-		return "", err
-	}
-	if cfg.APIKey == "" {
-		return "", errors.New("no API key configured — run: apialerts init")
-	}
-	return cfg.APIKey, nil
-}

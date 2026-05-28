@@ -1,0 +1,250 @@
+name: Publish
+
+on:
+  release:
+    types: [created]
+
+jobs:
+  goreleaser:
+    name: Publish with GoReleaser
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+      - name: Import Apple certificate
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          CERT_PATH="$RUNNER_TEMP/certificate.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+
+          echo -n "$APPLE_CERTIFICATE_BASE64" | base64 --decode -o "$CERT_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          security import "$CERT_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GORELEASER_TOKEN: ${{ secrets.GORELEASER_TOKEN }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      - name: Notarize macOS binaries
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for bin in dist/cli_darwin_*/apialerts; do
+            ZIP_PATH="${bin}.zip"
+            ditto -c -k "$bin" "$ZIP_PATH"
+            xcrun notarytool submit "$ZIP_PATH" \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_ID_PASSWORD" \
+              --team-id "$APPLE_TEAM_ID" \
+              --wait
+          done
+      - name: Upload dist for npm job
+        uses: actions/upload-artifact@v4
+        with:
+          name: goreleaser-dist
+          path: dist/
+          retention-days: 1
+
+  npm:
+    name: Publish npm packages
+    runs-on: ubuntu-latest
+    needs: goreleaser
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org/
+      - name: Download goreleaser dist
+        uses: actions/download-artifact@v4
+        with:
+          name: goreleaser-dist
+          path: dist/
+      - name: Verify wrapper and tag versions agree
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          WRAPPER_VERSION=$(node -p "require('./npm/package.json').version")
+          # Tag is v1.3.0; strip the leading v.
+          TAG_VERSION="${TAG#v}"
+          if [ "$WRAPPER_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::npm/package.json version ($WRAPPER_VERSION) does not match release tag ($TAG_VERSION). Bump it before tagging."
+            exit 1
+          fi
+      - name: Build platform packages
+        run: node npm/scripts/build-platform-packages.js
+      - name: Test wrapper
+        working-directory: npm
+        run: npm test
+      - name: Publish (release)
+        if: github.event.release.prerelease == false
+        run: node npm/scripts/publish-all.js
+      - name: Publish (alpha)
+        if: github.event.release.prerelease == true
+        run: node npm/scripts/publish-all.js --tag alpha
+
+  apt:
+    name: Publish apt repository
+    runs-on: ubuntu-latest
+    needs: goreleaser
+    permissions:
+      contents: read
+    steps:
+      - name: Install dpkg-dev
+        run: sudo apt-get install -y dpkg-dev
+
+      - name: Checkout apt repo
+        uses: actions/checkout@v6
+        with:
+          repository: apialerts/apt
+          token: ${{ secrets.GORELEASER_TOKEN }}
+          path: apt-repo
+
+      - name: Download .deb packages from release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download ${{ github.event.release.tag_name }} \
+            --pattern "*.deb" \
+            --dir debs \
+            --repo ${{ github.repository }}
+
+      - name: Import GPG key
+        run: echo "${{ secrets.APT_GPG_PRIVATE_KEY }}" | base64 -d | gpg --batch --import
+
+      - name: Update apt repository
+        env:
+          APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+        run: |
+          mkdir -p apt-repo/pool/main/a/apialerts
+          cp debs/*.deb apt-repo/pool/main/a/apialerts/
+
+          cd apt-repo
+          mkdir -p dists/stable/main/binary-amd64
+          mkdir -p dists/stable/main/binary-arm64
+
+          dpkg-scanpackages --arch amd64 pool/ > dists/stable/main/binary-amd64/Packages
+          gzip -kf dists/stable/main/binary-amd64/Packages
+
+          dpkg-scanpackages --arch arm64 pool/ > dists/stable/main/binary-arm64/Packages
+          gzip -kf dists/stable/main/binary-arm64/Packages
+
+          gpg --armor --export > key.gpg
+
+          {
+            echo "Origin: apialerts"
+            echo "Label: apialerts"
+            echo "Suite: stable"
+            echo "Codename: stable"
+            echo "Architectures: amd64 arm64"
+            echo "Components: main"
+            echo "Description: API Alerts apt repository"
+            echo "Date: $(date -Ru)"
+            echo "MD5Sum:"
+            for f in dists/stable/main/binary-*/Packages*; do
+              printf " %s %s %s\n" "$(md5sum "$f" | cut -d' ' -f1)" "$(wc -c < "$f")" "${f#dists/stable/}"
+            done
+            echo "SHA256:"
+            for f in dists/stable/main/binary-*/Packages*; do
+              printf " %s %s %s\n" "$(sha256sum "$f" | cut -d' ' -f1)" "$(wc -c < "$f")" "${f#dists/stable/}"
+            done
+          } > dists/stable/Release
+
+          gpg --batch --yes --pinentry-mode loopback --passphrase "$APT_GPG_PASSPHRASE" \
+            --clearsign -o dists/stable/InRelease dists/stable/Release
+          gpg --batch --yes --pinentry-mode loopback --passphrase "$APT_GPG_PASSPHRASE" \
+            -abs -o dists/stable/Release.gpg dists/stable/Release
+
+      - name: Push apt repo
+        run: |
+          cd apt-repo
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git diff --staged --quiet || git commit -m "Release ${{ github.event.release.tag_name }}"
+          git push
+
+  rpm:
+    name: Publish rpm repository
+    runs-on: ubuntu-latest
+    needs: goreleaser
+    permissions:
+      contents: read
+    steps:
+      - name: Install createrepo
+        run: sudo apt-get install -y createrepo-c rpm
+
+      - name: Checkout rpm repo
+        uses: actions/checkout@v6
+        with:
+          repository: apialerts/rpm
+          token: ${{ secrets.GORELEASER_TOKEN }}
+          path: rpm-repo
+
+      - name: Download .rpm packages from release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download ${{ github.event.release.tag_name }} \
+            --pattern "*.rpm" \
+            --dir rpms \
+            --repo ${{ github.repository }}
+
+      - name: Import GPG key
+        run: echo "${{ secrets.APT_GPG_PRIVATE_KEY }}" | base64 -d | gpg --batch --import
+
+      - name: Update rpm repository
+        env:
+          APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+        run: |
+          mkdir -p rpm-repo/packages
+          cp rpms/*.rpm rpm-repo/packages/
+
+          gpg --armor --export > rpm-repo/key.gpg
+
+          echo "$APT_GPG_PASSPHRASE" > /tmp/gpg-passphrase
+          printf '%%_signature gpg\n%%_gpg_name API Alerts <support@apialerts.com>\n%%__gpg_sign_cmd %%{__gpg} gpg --batch --no-verbose --no-armor --pinentry-mode loopback --passphrase-file /tmp/gpg-passphrase --no-secmem-warning -u "%%{_gpg_name}" -sbo %%{__signature_filename} %%{__plaintext_filename}\n' > ~/.rpmmacros
+          for rpm_file in rpm-repo/packages/*.rpm; do
+            rpmsign --addsign "$rpm_file"
+          done
+          rm /tmp/gpg-passphrase
+
+          createrepo_c rpm-repo/
+
+          gpg --batch --yes --pinentry-mode loopback --passphrase "$APT_GPG_PASSPHRASE" \
+            --detach-sign --armor rpm-repo/repodata/repomd.xml
+
+      - name: Push rpm repo
+        run: |
+          cd rpm-repo
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git diff --staged --quiet || git commit -m "Release ${{ github.event.release.tag_name }}"
+          git push

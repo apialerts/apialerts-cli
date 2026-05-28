@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/apialerts/apialerts-go"
@@ -39,10 +40,13 @@ Properties:
   apialerts send -e "user.purchase" -t "New Sale" -m "$49.99 from john@example.com" -c "payments"
   apialerts send -m "Payment failed" -c "payments" -g "billing,error"
   apialerts send -m "Build passed" -l "https://ci.example.com/build/123"
-  apialerts send -e "user.signup" -m "New user registered" -d '{"plan":"pro","source":"organic"}'`,
+  apialerts send -e "user.signup" -m "New user registered" -d '{"plan":"pro","source":"organic"}'
+
+Headless / agent usage (no config file, parseable result):
+  APIALERTS_API_KEY="..." apialerts send --json -m "Task complete" -c agents`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if sendMessage == "" {
-			return fmt.Errorf("message is required — use -m \"your message\"")
+			return fmt.Errorf("message is required - use -m \"your message\"")
 		}
 
 		// Load config once
@@ -51,13 +55,9 @@ Properties:
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		// Resolve API key: flag > config file
-		apiKey := sendKey
-		if apiKey == "" {
-			if cfg.APIKey == "" {
-				return fmt.Errorf("no API key configured — run: apialerts init")
-			}
-			apiKey = cfg.APIKey
+		apiKey, err := resolveAPIKey(sendKey, cfg)
+		if err != nil {
+			return err
 		}
 
 		// Parse tags
@@ -93,16 +93,23 @@ Properties:
 			Data:    data,
 		}
 
+		if debugFlag {
+			apialerts.SetDebug(true)
+			fmt.Fprintf(os.Stderr, "[debug] integration: %s/%s\n", IntegrationName, Version)
+			if cfg.ServerURL != "" {
+				fmt.Fprintf(os.Stderr, "[debug] server URL: %s\n", cfg.ServerURL)
+			}
+			if payload, err := json.MarshalIndent(event, "", "  "); err == nil {
+				fmt.Fprintf(os.Stderr, "[debug] payload: %s\n", payload)
+			}
+		}
+
 		result, err := apialerts.SendAsync(event)
 		if err != nil {
 			return fmt.Errorf("failed to send: %w", err)
 		}
 
-		fmt.Printf("✓ Alert sent to %s (%s)\n", result.Workspace, result.Channel)
-		for _, w := range result.Warnings {
-			fmt.Printf("! Warning: %s\n", w)
-		}
-
+		printResult(result, "✓ Alert sent to ")
 		return nil
 	},
 }

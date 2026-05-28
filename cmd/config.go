@@ -95,6 +95,6 @@ func init() {
 	configCmd.Flags().StringVar(&configKey, "key", "", "Your API Alerts API key")
 	configCmd.Flags().BoolVar(&unsetKey, "unset", false, "Remove the stored API key")
 	configCmd.Flags().StringVar(&configServerURL, "server-url", "", "Override the API server URL")
-	configCmd.Flags().MarkHidden("server-url")
+	_ = configCmd.Flags().MarkHidden("server-url")
 	rootCmd.AddCommand(configCmd)
 }

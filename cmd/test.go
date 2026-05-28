@@ -2,11 +2,14 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/apialerts/apialerts-go"
 	"github.com/apialerts/cli/internal/config"
 	"github.com/spf13/cobra"
 )
+
+var testKey string
 
 var testCmd = &cobra.Command{
 	Use:   "test",
@@ -17,12 +20,21 @@ var testCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
-		if cfg.APIKey == "" {
-			return fmt.Errorf("no API key configured — run: apialerts init")
+
+		apiKey, err := resolveAPIKey(testKey, cfg)
+		if err != nil {
+			return err
 		}
 
-		apialerts.Configure(cfg.APIKey)
+		apialerts.Configure(apiKey)
 		apialerts.SetOverrides(IntegrationName, Version, cfg.ServerURL)
+		if debugFlag {
+			apialerts.SetDebug(true)
+			fmt.Fprintf(os.Stderr, "[debug] integration: %s/%s\n", IntegrationName, Version)
+			if cfg.ServerURL != "" {
+				fmt.Fprintf(os.Stderr, "[debug] server URL: %s\n", cfg.ServerURL)
+			}
+		}
 
 		event := apialerts.Event{
 			Event:   "cli.test",
@@ -36,15 +48,12 @@ var testCmd = &cobra.Command{
 			return fmt.Errorf("test failed: %w", err)
 		}
 
-		fmt.Printf("✓ Test event sent to %s (%s)\n", result.Workspace, result.Channel)
-		for _, w := range result.Warnings {
-			fmt.Printf("! Warning: %s\n", w)
-		}
-
+		printResult(result, "✓ Test event sent to ")
 		return nil
 	},
 }
 
 func init() {
+	testCmd.Flags().StringVar(&testKey, "key", "", "API key override (instead of stored config)")
 	rootCmd.AddCommand(testCmd)
 }

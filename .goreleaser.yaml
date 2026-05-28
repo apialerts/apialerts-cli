@@ -33,6 +33,18 @@ archives:
 checksum:
   name_template: "checksums.txt"
 
+nfpms:
+  - id: packages
+    package_name: apialerts
+    vendor: apialerts
+    homepage: https://apialerts.com
+    maintainer: API Alerts <support@apialerts.com>
+    description: API Alerts CLI - send events from your terminal
+    license: MIT
+    formats:
+      - deb
+      - rpm
+
 homebrew_casks:
   - name: apialerts
     repository:
@@ -40,7 +52,7 @@ homebrew_casks:
       name: homebrew-tap
       token: "{{ .Env.GORELEASER_TOKEN }}"
     homepage: "https://apialerts.com"
-    description: "API Alerts CLI — send events from your terminal"
+    description: "API Alerts CLI - send events from your terminal"
 
 scoops:
   - name: apialerts
@@ -49,7 +61,36 @@ scoops:
       name: scoop-bucket
       token: "{{ .Env.GORELEASER_TOKEN }}"
     homepage: "https://apialerts.com"
-    description: "API Alerts CLI — send events from your terminal"
+    description: "API Alerts CLI - send events from your terminal"
+
+winget:
+  - name: apialerts
+    publisher: apialerts
+    package_identifier: APIAlerts.CLI
+    short_description: "API Alerts CLI - send events from your terminal"
+    description: "A command-line interface for apialerts.com. Send events from your terminal, scripts, and CI/CD pipelines. Supports APIALERTS_API_KEY env var and machine-readable --json output for AI agents and automation."
+    homepage: "https://apialerts.com"
+    license: MIT
+    license_url: "https://github.com/apialerts/cli/blob/main/LICENSE"
+    publisher_url: "https://apialerts.com"
+    publisher_support_url: "https://github.com/apialerts/cli/issues"
+    tags:
+      - cli
+      - notifications
+      - monitoring
+      - observability
+      - alerts
+    repository:
+      owner: apialerts
+      name: winget-pkgs
+      token: "{{ .Env.GORELEASER_TOKEN }}"
+      branch: "{{ .ProjectName }}-{{ .Version }}"
+      pull_request:
+        enabled: false
+        base:
+          owner: microsoft
+          name: winget-pkgs
+          branch: master
 
 changelog:
   sort: asc
