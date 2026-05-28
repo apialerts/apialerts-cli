@@ -1,14 +1,6 @@
 #!/usr/bin/env node
-// Publishes the wrapper and all built platform packages to npm. Designed to
-// run after build-platform-packages.js inside a GitHub Actions job that has
-// id-token: write (for OIDC trusted publishing) and a configured registry-url.
-//
-// Order: platform packages first, then the main wrapper. This guarantees the
-// wrapper's optionalDependencies resolve immediately for anyone who hits the
-// registry mid-publish.
-//
-// Usage:
-//   node npm/scripts/publish-all.js [--dry-run] [--tag alpha]
+// Publishes platform packages then the wrapper to npm.
+// Usage: node npm/scripts/publish-all.js [--dry-run] [--tag alpha]
 'use strict';
 
 const fs = require('fs');
@@ -32,8 +24,6 @@ function parseArgs() {
 }
 
 function isAlreadyPublished(name, version) {
-  // `npm view <name>@<version> version` exits 0 and prints the version when it
-  // exists. When the version doesn't exist on npm, exit code is non-zero (404).
   const result = spawnSync('npm', ['view', `${name}@${version}`, 'version'], {
     encoding: 'utf8',
   });
@@ -43,11 +33,12 @@ function isAlreadyPublished(name, version) {
 function publish(dir, flags) {
   const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
 
-  // Idempotent retry: if this exact version is already on npm, skip rather
-  // than letting `npm publish` fail with "cannot publish over the previously
-  // published version" partway through the loop. Lets us recover from a
-  // mid-publish failure (e.g. trusted-publishing misconfig on one of the 7
-  // packages) by fixing the bad one and re-running the workflow.
+  if (!/^\d+\.\d+\.\d+(?:-[\w.]+)?$/.test(pkg.version) || pkg.version.startsWith('0.0.0-')) {
+    throw new Error(
+      `${pkg.name}@${pkg.version} looks like a placeholder. Run build-platform-packages.js first.`
+    );
+  }
+
   if (!flags.dryRun && isAlreadyPublished(pkg.name, pkg.version)) {
     console.log(`Already published ${pkg.name}@${pkg.version}, skipping.`);
     return;
@@ -85,7 +76,6 @@ function main() {
   for (const dir of platformDirs) {
     publish(dir, flags);
   }
-  // Wrapper last so its optionalDependencies resolve straight away.
   publish(NPM_DIR, flags);
   console.log('All packages published.');
 }

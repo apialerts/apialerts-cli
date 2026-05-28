@@ -86,15 +86,15 @@ jobs:
         with:
           name: goreleaser-dist
           path: dist/
-      - name: Verify wrapper and tag versions agree
+      - name: Verify cmd/constants.go version matches release tag
         env:
           TAG: ${{ github.event.release.tag_name }}
         run: |
-          WRAPPER_VERSION=$(node -p "require('./npm/package.json').version")
-          # Tag is v1.3.0; strip the leading v.
+          GO_VERSION=$(grep -E 'Version[[:space:]]*=[[:space:]]*"' cmd/constants.go \
+            | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
           TAG_VERSION="${TAG#v}"
-          if [ "$WRAPPER_VERSION" != "$TAG_VERSION" ]; then
-            echo "::error::npm/package.json version ($WRAPPER_VERSION) does not match release tag ($TAG_VERSION). Bump it before tagging."
+          if [ "$GO_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::cmd/constants.go Version ($GO_VERSION) does not match release tag ($TAG_VERSION). Update constants.go and re-tag."
             exit 1
           fi
       - name: Build platform packages

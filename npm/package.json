@@ -1,6 +1,6 @@
 {
   "name": "@apialerts/cli",
-  "version": "1.3.0",
+  "version": "0.0.0-dev",
   "description": "API Alerts CLI - send events from your terminal, scripts, and CI/CD pipelines",
   "license": "MIT",
   "author": "API Alerts",
@@ -37,11 +37,11 @@
     "test": "node --test"
   },
   "optionalDependencies": {
-    "@apialerts/cli-darwin-arm64": "1.3.0",
-    "@apialerts/cli-darwin-x64": "1.3.0",
-    "@apialerts/cli-linux-arm64": "1.3.0",
-    "@apialerts/cli-linux-x64": "1.3.0",
-    "@apialerts/cli-win32-arm64": "1.3.0",
-    "@apialerts/cli-win32-x64": "1.3.0"
+    "@apialerts/cli-darwin-arm64": "0.0.0-dev",
+    "@apialerts/cli-darwin-x64": "0.0.0-dev",
+    "@apialerts/cli-linux-arm64": "0.0.0-dev",
+    "@apialerts/cli-linux-x64": "0.0.0-dev",
+    "@apialerts/cli-win32-arm64": "0.0.0-dev",
+    "@apialerts/cli-win32-x64": "0.0.0-dev"
   }
 }

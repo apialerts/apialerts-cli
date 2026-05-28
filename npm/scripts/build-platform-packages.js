@@ -1,19 +1,9 @@
 #!/usr/bin/env node
-// Builds the six per-platform npm packages from the GoReleaser dist/ directory.
+// Reads the version from cmd/constants.go, substitutes it into
+// npm/package.json (replacing the 0.0.0-dev placeholders), and builds the
+// six per-platform npm packages from the GoReleaser dist/ directory.
 //
-// Inputs (from project root):
-//   dist/cli_<os>_<arch>(_<variant>)?/apialerts(.exe)?   GoReleaser binaries
-//
-// Outputs:
-//   npm/platforms/<os>-<arch>/
-//     package.json
-//     bin/apialerts(.exe)
-//
-// Usage:
-//   node npm/scripts/build-platform-packages.js [--version <semver>]
-//
-// If --version is omitted, the version is read from npm/package.json so the
-// wrapper and platform packages always publish at the same version.
+// Usage: node npm/scripts/build-platform-packages.js [--version <semver>]
 'use strict';
 
 const fs = require('fs');
@@ -23,9 +13,9 @@ const ROOT = path.resolve(__dirname, '..', '..');
 const NPM_DIR = path.resolve(__dirname, '..');
 const DIST_DIR = path.join(ROOT, 'dist');
 const OUT_DIR = path.join(NPM_DIR, 'platforms');
+const CONSTANTS_PATH = path.join(ROOT, 'cmd', 'constants.go');
+const WRAPPER_PKG = path.join(NPM_DIR, 'package.json');
 
-// GoReleaser builds these by default for the .goreleaser.yaml in this repo.
-// Keep in sync with build matrix in .goreleaser.yaml and PACKAGES in index.js.
 const TARGETS = [
   { os: 'darwin', arch: 'arm64', goDist: 'cli_darwin_arm64', binary: 'apialerts' },
   { os: 'darwin', arch: 'x64', goDist: 'cli_darwin_amd64_v1', binary: 'apialerts' },
@@ -35,11 +25,24 @@ const TARGETS = [
   { os: 'win32', arch: 'x64', goDist: 'cli_windows_amd64_v1', binary: 'apialerts.exe' },
 ];
 
-function readWrapperVersion() {
-  const pkg = JSON.parse(
-    fs.readFileSync(path.join(NPM_DIR, 'package.json'), 'utf8')
-  );
-  return pkg.version;
+function readGoVersion() {
+  const src = fs.readFileSync(CONSTANTS_PATH, 'utf8');
+  const m = src.match(/Version\s*=\s*"([^"]+)"/);
+  if (!m) {
+    throw new Error(`Could not parse Version from ${CONSTANTS_PATH}`);
+  }
+  return m[1];
+}
+
+function syncWrapperVersion(version) {
+  const pkg = JSON.parse(fs.readFileSync(WRAPPER_PKG, 'utf8'));
+  pkg.version = version;
+  if (pkg.optionalDependencies) {
+    for (const key of Object.keys(pkg.optionalDependencies)) {
+      pkg.optionalDependencies[key] = version;
+    }
+  }
+  fs.writeFileSync(WRAPPER_PKG, JSON.stringify(pkg, null, 2) + '\n');
 }
 
 function parseArgs() {
@@ -51,13 +54,10 @@ function parseArgs() {
       i++;
     }
   }
-  return { version: version ?? readWrapperVersion() };
+  return { version: version ?? readGoVersion() };
 }
 
 function findBinary(target) {
-  // GoReleaser's directory naming includes an arch variant suffix (_v1, _v8.0)
-  // that can drift with releaser version. Tolerate either explicit form or
-  // the simpler form by globbing.
   const exact = path.join(DIST_DIR, target.goDist, target.binary);
   if (fs.existsSync(exact)) return exact;
 
@@ -88,15 +88,9 @@ function writePlatformPackage(target, version) {
   const sourceBinary = findBinary(target);
   const destBinary = path.join(binDir, target.binary);
   fs.copyFileSync(sourceBinary, destBinary);
-  // Preserve executable bit on POSIX targets; Windows ignores chmod.
   if (target.os !== 'win32') {
     fs.chmodSync(destBinary, 0o755);
   }
-
-  // npm's `os`/`cpu` fields cause non-matching platforms to skip install,
-  // even though we list every package in optionalDependencies.
-  const npmOs = target.os; // matches process.platform values
-  const npmCpu = target.arch; // matches process.arch values
 
   const pkg = {
     name: pkgName,
@@ -113,8 +107,8 @@ function writePlatformPackage(target, version) {
       apialerts: `bin/${target.binary}`,
     },
     files: ['bin'],
-    os: [npmOs],
-    cpu: [npmCpu],
+    os: [target.os],
+    cpu: [target.arch],
   };
   fs.writeFileSync(
     path.join(dir, 'package.json'),
@@ -134,6 +128,9 @@ function main() {
     process.exit(1);
   }
   fs.rmSync(OUT_DIR, { recursive: true, force: true });
+
+  syncWrapperVersion(version);
+  console.log(`Synced npm/package.json (version + optionalDependencies) to ${version}`);
 
   const built = TARGETS.map((t) => writePlatformPackage(t, version));
   console.log(`Built ${built.length} platform packages at version ${version}:`);
