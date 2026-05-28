@@ -103,9 +103,6 @@ function writePlatformPackage(target, version) {
       type: 'git',
       url: 'git+https://github.com/apialerts/cli.git',
     },
-    bin: {
-      apialerts: `bin/${target.binary}`,
-    },
     files: ['bin'],
     os: [target.os],
     cpu: [target.arch],
