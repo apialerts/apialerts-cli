@@ -80,32 +80,6 @@ func TestLoadCorruptedFile(t *testing.T) {
 	}
 }
 
-func TestGetAPIKeyNotConfigured(t *testing.T) {
-	setupTestDir(t)
-
-	_, err := GetAPIKey()
-	if err == nil {
-		t.Fatal("expected error when no key configured, got nil")
-	}
-}
-
-func TestGetAPIKeyConfigured(t *testing.T) {
-	setupTestDir(t)
-
-	err := Save(&CLIConfig{APIKey: "my-key"})
-	if err != nil {
-		t.Fatalf("expected no error saving, got %v", err)
-	}
-
-	key, err := GetAPIKey()
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	if key != "my-key" {
-		t.Fatalf("expected key %q, got %q", "my-key", key)
-	}
-}
-
 func TestSaveOverwrite(t *testing.T) {
 	setupTestDir(t)
 

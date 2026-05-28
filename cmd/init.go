@@ -16,7 +16,7 @@ var initCmd = &cobra.Command{
 	Long:  "Interactively prompt for your API key and save it to ~/.apialerts/config.json.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if !term.IsTerminal(int(os.Stdin.Fd())) {
-			return fmt.Errorf("no terminal detected — use: apialerts config --key \"your-api-key\"")
+			return fmt.Errorf("no terminal detected - use: apialerts config --key \"your-api-key\"")
 		}
 
 		fmt.Print("Enter your API key: ")

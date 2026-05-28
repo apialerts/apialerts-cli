@@ -39,9 +39,18 @@ type result struct {
 }
 
 func run(t *testing.T, homeDir string, args ...string) result {
+	return runEnv(t, homeDir, nil, args...)
+}
+
+func runEnv(t *testing.T, homeDir string, env map[string]string, args ...string) result {
 	t.Helper()
 	cmd := exec.Command(binaryPath, args...)
-	cmd.Env = []string{"HOME=" + homeDir}
+
+	envSlice := []string{"HOME=" + homeDir}
+	for k, v := range env {
+		envSlice = append(envSlice, k+"="+v)
+	}
+	cmd.Env = envSlice
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -69,6 +78,20 @@ func mockServer(t *testing.T, statusCode int, body map[string]any) *httptest.Ser
 			json.NewEncoder(w).Encode(body)
 		}
 	}))
+}
+
+func captureServer(t *testing.T, statusCode int, body map[string]any) (*httptest.Server, chan *http.Request) {
+	t.Helper()
+	captured := make(chan *http.Request, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captured <- r
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(statusCode)
+		if body != nil {
+			json.NewEncoder(w).Encode(body)
+		}
+	}))
+	return server, captured
 }
 
 // --- Config tests ---
@@ -276,5 +299,289 @@ func TestTestCommandNoKey(t *testing.T) {
 	}
 	if !strings.Contains(r.stderr, "no API key configured") {
 		t.Errorf("expected 'no API key configured', got: %q", r.stderr)
+	}
+}
+
+func TestTestCommandKeyFlag(t *testing.T) {
+	server := mockServer(t, http.StatusOK, map[string]any{
+		"workspace": "Acme Corp",
+		"channel":   "general",
+	})
+	defer server.Close()
+
+	home := t.TempDir()
+	// No `config --key` first: the --key flag must work without stored config.
+	run(t, home, "config", "--server-url", server.URL)
+	r := run(t, home, "test", "--key", "fake-api-key")
+	if r.exitCode != 0 {
+		t.Errorf("expected success, got exit code %d, stderr: %q", r.exitCode, r.stderr)
+	}
+	if !strings.Contains(r.stdout, "Acme Corp") {
+		t.Errorf("expected workspace in output, got: %q", r.stdout)
+	}
+}
+
+// --- Debug flag tests ---
+
+func TestSendDebugFlag(t *testing.T) {
+	server := mockServer(t, http.StatusOK, map[string]any{
+		"workspace": "Acme Corp",
+		"channel":   "general",
+	})
+	defer server.Close()
+
+	home := t.TempDir()
+	run(t, home, "config", "--server-url", server.URL)
+	r := run(t, home, "send", "--debug", "-m", "Deploy complete", "--key", "fake-api-key")
+	if r.exitCode != 0 {
+		t.Errorf("expected success, got exit code %d, stderr: %q", r.exitCode, r.stderr)
+	}
+	if !strings.Contains(r.stderr, "[debug] integration: apialerts-cli") {
+		t.Errorf("expected integration debug line, got: %q", r.stderr)
+	}
+	if !strings.Contains(r.stderr, "[debug] payload:") {
+		t.Errorf("expected payload debug line, got: %q", r.stderr)
+	}
+	if !strings.Contains(r.stderr, "Deploy complete") {
+		t.Errorf("expected payload to contain message, got: %q", r.stderr)
+	}
+}
+
+func TestTestDebugFlag(t *testing.T) {
+	server := mockServer(t, http.StatusOK, map[string]any{
+		"workspace": "Acme Corp",
+		"channel":   "general",
+	})
+	defer server.Close()
+
+	home := t.TempDir()
+	run(t, home, "config", "--server-url", server.URL)
+	r := run(t, home, "test", "--debug", "--key", "fake-api-key")
+	if r.exitCode != 0 {
+		t.Errorf("expected success, got exit code %d, stderr: %q", r.exitCode, r.stderr)
+	}
+	if !strings.Contains(r.stderr, "[debug] integration: apialerts-cli") {
+		t.Errorf("expected integration debug line, got: %q", r.stderr)
+	}
+}
+
+// --- APIALERTS_API_KEY env var tests ---
+
+func TestSendUsesEnvVar(t *testing.T) {
+	server := mockServer(t, http.StatusOK, map[string]any{
+		"workspace": "Acme Corp",
+		"channel":   "general",
+	})
+	defer server.Close()
+
+	home := t.TempDir()
+	run(t, home, "config", "--server-url", server.URL)
+	r := runEnv(t, home, map[string]string{"APIALERTS_API_KEY": "env-key"}, "send", "-m", "from env")
+	if r.exitCode != 0 {
+		t.Errorf("expected success, got exit code %d, stderr: %q", r.exitCode, r.stderr)
+	}
+	if !strings.Contains(r.stdout, "Acme Corp") {
+		t.Errorf("expected workspace in output, got: %q", r.stdout)
+	}
+}
+
+func TestTestUsesEnvVar(t *testing.T) {
+	server := mockServer(t, http.StatusOK, map[string]any{
+		"workspace": "Acme Corp",
+		"channel":   "general",
+	})
+	defer server.Close()
+
+	home := t.TempDir()
+	run(t, home, "config", "--server-url", server.URL)
+	r := runEnv(t, home, map[string]string{"APIALERTS_API_KEY": "env-key"}, "test")
+	if r.exitCode != 0 {
+		t.Errorf("expected success, got exit code %d, stderr: %q", r.exitCode, r.stderr)
+	}
+	if !strings.Contains(r.stdout, "Acme Corp") {
+		t.Errorf("expected workspace in output, got: %q", r.stdout)
+	}
+}
+
+func TestSendKeyFlagBeatsEnvVar(t *testing.T) {
+	server, captured := captureServer(t, http.StatusOK, map[string]any{
+		"workspace": "Acme Corp",
+		"channel":   "general",
+	})
+	defer server.Close()
+
+	home := t.TempDir()
+	run(t, home, "config", "--server-url", server.URL)
+	r := runEnv(t, home,
+		map[string]string{"APIALERTS_API_KEY": "env-key"},
+		"send", "-m", "hi", "--key", "flag-key")
+	if r.exitCode != 0 {
+		t.Errorf("expected success, got exit code %d, stderr: %q", r.exitCode, r.stderr)
+	}
+	req := <-captured
+	if got := req.Header.Get("Authorization"); got != "Bearer flag-key" {
+		t.Errorf("expected --key to win, got Authorization %q", got)
+	}
+}
+
+func TestSendNoKeySources(t *testing.T) {
+	home := t.TempDir()
+	r := run(t, home, "send", "-m", "hi")
+	if r.exitCode == 0 {
+		t.Error("expected non-zero exit code when no key from any source")
+	}
+	if !strings.Contains(r.stderr, "APIALERTS_API_KEY") {
+		t.Errorf("expected error to mention APIALERTS_API_KEY, got: %q", r.stderr)
+	}
+}
+
+// --- --json output tests ---
+
+func TestSendJSONSuccess(t *testing.T) {
+	server := mockServer(t, http.StatusOK, map[string]any{
+		"workspace": "Acme Corp",
+		"channel":   "general",
+		"warnings":  []string{"deprecated field"},
+	})
+	defer server.Close()
+
+	home := t.TempDir()
+	run(t, home, "config", "--server-url", server.URL)
+	r := run(t, home, "send", "--json", "-m", "hi", "--key", "fake-api-key")
+	if r.exitCode != 0 {
+		t.Errorf("expected success, got exit code %d, stderr: %q", r.exitCode, r.stderr)
+	}
+
+	var payload struct {
+		Workspace string   `json:"workspace"`
+		Channel   string   `json:"channel"`
+		Warnings  []string `json:"warnings"`
+	}
+	if err := json.Unmarshal([]byte(r.stdout), &payload); err != nil {
+		t.Fatalf("expected valid JSON on stdout, got %q (err: %v)", r.stdout, err)
+	}
+	if payload.Workspace != "Acme Corp" || payload.Channel != "general" {
+		t.Errorf("unexpected JSON payload: %+v", payload)
+	}
+	if len(payload.Warnings) != 1 || payload.Warnings[0] != "deprecated field" {
+		t.Errorf("expected warnings to be propagated, got: %+v", payload.Warnings)
+	}
+}
+
+func TestSendJSONError(t *testing.T) {
+	server := mockServer(t, http.StatusUnauthorized, nil)
+	defer server.Close()
+
+	home := t.TempDir()
+	run(t, home, "config", "--server-url", server.URL)
+	r := run(t, home, "send", "--json", "-m", "hi", "--key", "bad-key")
+	if r.exitCode == 0 {
+		t.Error("expected non-zero exit code")
+	}
+
+	var payload struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(r.stderr), &payload); err != nil {
+		t.Fatalf("expected JSON error on stderr, got %q (err: %v)", r.stderr, err)
+	}
+	if !strings.Contains(payload.Error, "unauthorized") {
+		t.Errorf("expected error to mention unauthorized, got: %q", payload.Error)
+	}
+}
+
+func TestJSONErrorUnknownCommand(t *testing.T) {
+	home := t.TempDir()
+	r := run(t, home, "--json", "bogus")
+	if r.exitCode == 0 {
+		t.Error("expected non-zero exit code")
+	}
+	var payload struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(r.stderr), &payload); err != nil {
+		t.Fatalf("expected JSON error on stderr (cobra parse path), got %q (err: %v)", r.stderr, err)
+	}
+	if !strings.Contains(payload.Error, "unknown command") {
+		t.Errorf("expected 'unknown command' in error, got: %q", payload.Error)
+	}
+}
+
+func TestJSONErrorUnknownFlag(t *testing.T) {
+	home := t.TempDir()
+	r := run(t, home, "send", "--json", "--bogus")
+	if r.exitCode == 0 {
+		t.Error("expected non-zero exit code")
+	}
+	var payload struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(r.stderr), &payload); err != nil {
+		t.Fatalf("expected JSON error on stderr, got %q (err: %v)", r.stderr, err)
+	}
+	if !strings.Contains(payload.Error, "unknown flag") {
+		t.Errorf("expected 'unknown flag' in error, got: %q", payload.Error)
+	}
+}
+
+func TestJSONVersion(t *testing.T) {
+	home := t.TempDir()
+	r := run(t, home, "--json", "--version")
+	if r.exitCode != 0 {
+		t.Errorf("expected exit 0, got %d, stderr: %q", r.exitCode, r.stderr)
+	}
+	var payload struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal([]byte(r.stdout), &payload); err != nil {
+		t.Fatalf("expected JSON version on stdout, got %q (err: %v)", r.stdout, err)
+	}
+	if payload.Version == "" {
+		t.Error("expected non-empty version field")
+	}
+}
+
+func TestJSONSuccessKeyOrder(t *testing.T) {
+	server := mockServer(t, http.StatusOK, map[string]any{
+		"workspace": "Acme Corp",
+		"channel":   "general",
+	})
+	defer server.Close()
+
+	home := t.TempDir()
+	run(t, home, "config", "--server-url", server.URL)
+	r := run(t, home, "send", "--json", "-m", "hi", "--key", "fake-api-key")
+	// Documented schema places keys in workspace, channel, warnings order.
+	// A struct-backed encode keeps this stable; a map-backed encode would
+	// alphabetise to channel, warnings, workspace and break parsers that
+	// rely on the documented shape.
+	if !strings.HasPrefix(r.stdout, `{"workspace":`) {
+		t.Errorf("expected JSON output to start with workspace field, got: %q", r.stdout)
+	}
+}
+
+func TestTestJSONSuccess(t *testing.T) {
+	server := mockServer(t, http.StatusOK, map[string]any{
+		"workspace": "Acme Corp",
+		"channel":   "general",
+	})
+	defer server.Close()
+
+	home := t.TempDir()
+	run(t, home, "config", "--server-url", server.URL)
+	r := run(t, home, "test", "--json", "--key", "fake-api-key")
+	if r.exitCode != 0 {
+		t.Errorf("expected success, got exit code %d, stderr: %q", r.exitCode, r.stderr)
+	}
+
+	var payload struct {
+		Workspace string `json:"workspace"`
+		Channel   string `json:"channel"`
+	}
+	if err := json.Unmarshal([]byte(r.stdout), &payload); err != nil {
+		t.Fatalf("expected valid JSON on stdout, got %q (err: %v)", r.stdout, err)
+	}
+	if payload.Workspace != "Acme Corp" || payload.Channel != "general" {
+		t.Errorf("unexpected JSON payload: %+v", payload)
 	}
 }

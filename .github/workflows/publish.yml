@@ -24,19 +24,19 @@ jobs:
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
-          CERT_PATH=$RUNNER_TEMP/certificate.p12
-          KEYCHAIN_PATH=$RUNNER_TEMP/signing.keychain-db
+          CERT_PATH="$RUNNER_TEMP/certificate.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/signing.keychain-db"
           KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
 
-          echo -n "$APPLE_CERTIFICATE_BASE64" | base64 --decode -o $CERT_PATH
+          echo -n "$APPLE_CERTIFICATE_BASE64" | base64 --decode -o "$CERT_PATH"
 
-          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
-          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-          security import $CERT_PATH -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
-          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
-          security list-keychain -d user -s $KEYCHAIN_PATH
+          security import "$CERT_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
         with:
@@ -61,6 +61,53 @@ jobs:
               --team-id "$APPLE_TEAM_ID" \
               --wait
           done
+      - name: Upload dist for npm job
+        uses: actions/upload-artifact@v4
+        with:
+          name: goreleaser-dist
+          path: dist/
+          retention-days: 1
+
+  npm:
+    name: Publish npm packages
+    runs-on: ubuntu-latest
+    needs: goreleaser
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org/
+      - name: Download goreleaser dist
+        uses: actions/download-artifact@v4
+        with:
+          name: goreleaser-dist
+          path: dist/
+      - name: Verify wrapper and tag versions agree
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          WRAPPER_VERSION=$(node -p "require('./npm/package.json').version")
+          # Tag is v1.3.0; strip the leading v.
+          TAG_VERSION="${TAG#v}"
+          if [ "$WRAPPER_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::npm/package.json version ($WRAPPER_VERSION) does not match release tag ($TAG_VERSION). Bump it before tagging."
+            exit 1
+          fi
+      - name: Build platform packages
+        run: node npm/scripts/build-platform-packages.js
+      - name: Test wrapper
+        working-directory: npm
+        run: npm test
+      - name: Publish (release)
+        if: github.event.release.prerelease == false
+        run: node npm/scripts/publish-all.js
+      - name: Publish (alpha)
+        if: github.event.release.prerelease == true
+        run: node npm/scripts/publish-all.js --tag alpha
 
   apt:
     name: Publish apt repository
