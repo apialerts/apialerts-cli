@@ -31,12 +31,32 @@ function parseArgs() {
   return flags;
 }
 
+function isAlreadyPublished(name, version) {
+  // `npm view <name>@<version> version` exits 0 and prints the version when it
+  // exists. When the version doesn't exist on npm, exit code is non-zero (404).
+  const result = spawnSync('npm', ['view', `${name}@${version}`, 'version'], {
+    encoding: 'utf8',
+  });
+  return result.status === 0 && result.stdout.trim() === version;
+}
+
 function publish(dir, flags) {
+  const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
+
+  // Idempotent retry: if this exact version is already on npm, skip rather
+  // than letting `npm publish` fail with "cannot publish over the previously
+  // published version" partway through the loop. Lets us recover from a
+  // mid-publish failure (e.g. trusted-publishing misconfig on one of the 7
+  // packages) by fixing the bad one and re-running the workflow.
+  if (!flags.dryRun && isAlreadyPublished(pkg.name, pkg.version)) {
+    console.log(`Already published ${pkg.name}@${pkg.version}, skipping.`);
+    return;
+  }
+
   const args = ['publish', '--access', 'public', '--provenance'];
   if (flags.tag) args.push('--tag', flags.tag);
   if (flags.dryRun) args.push('--dry-run');
 
-  const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
   console.log(
     `${flags.dryRun ? '[dry-run] ' : ''}npm publish ${pkg.name}@${pkg.version} in ${path.relative(process.cwd(), dir)}`
   );
