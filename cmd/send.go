@@ -33,7 +33,7 @@ Properties:
   -t  title     Short title displayed above the message
   -c  channel   Target channel (uses your default channel if not set)
   -g  tags      Comma-separated tags for filtering (e.g. billing,error)
-  -l  link      URL attached to the notification
+  -l  link      URL associated with the event (deeplink + CTA)
   -d  data      JSON object with additional event data (e.g. '{"user":"john","plan":"pro"}')
       key       API key override (uses stored config if not set)`,
 	Example: `  apialerts send -m "Deploy completed"

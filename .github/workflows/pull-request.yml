@@ -23,4 +23,8 @@ jobs:
       - name: Test
         run: go test -v ./...
       - name: Build
-        run: go build -v ./...
+        run: go build -v -o apialerts .
+      - name: Send Build Alert
+        run: ./apialerts send -c developer -e ci.integration.build.cli -t "Build Passed" -m "CLI - PR build success" -g "CI/CD,CLI,Build" -l "https://github.com/apialerts/cli/actions"
+        env:
+          APIALERTS_API_KEY: ${{ secrets.APIALERTS_API_KEY }}
